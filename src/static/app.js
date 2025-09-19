@@ -3,6 +3,82 @@ document.addEventListener("DOMContentLoaded", () => {
   const activitySelect = document.getElementById("activity");
   const signupForm = document.getElementById("signup-form");
   const messageDiv = document.getElementById("message");
+  const loginBtn = document.getElementById("login-btn");
+  const logoutBtn = document.getElementById("logout-btn");
+  const loginModal = document.getElementById("login-modal");
+  const loginForm = document.getElementById("login-form");
+  const closeModal = document.querySelector(".close");
+  
+  let isTeacherLoggedIn = false;
+  let authToken = localStorage.getItem("authToken");
+
+  // Authentication functions
+  async function loginTeacher(username, password) {
+    try {
+      const response = await fetch("/token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`,
+      });
+
+      if (!response.ok) {
+        throw new Error("Invalid credentials");
+      }
+
+      const data = await response.json();
+      localStorage.setItem("authToken", data.access_token);
+      authToken = data.access_token;
+      isTeacherLoggedIn = true;
+      updateAuthUI();
+      return true;
+    } catch (error) {
+      console.error("Login failed:", error);
+      return false;
+    }
+  }
+
+  function logoutTeacher() {
+    localStorage.removeItem("authToken");
+    authToken = null;
+    isTeacherLoggedIn = false;
+    updateAuthUI();
+  }
+
+  function updateAuthUI() {
+    loginBtn.style.display = isTeacherLoggedIn ? "none" : "block";
+    logoutBtn.style.display = isTeacherLoggedIn ? "block" : "none";
+    // Update registration buttons visibility
+    document.querySelectorAll('.register-btn').forEach(btn => {
+      btn.style.display = isTeacherLoggedIn ? "block" : "none";
+    });
+  }
+
+  // Modal handlers
+  loginBtn.onclick = () => loginModal.style.display = "block";
+  closeModal.onclick = () => loginModal.style.display = "none";
+  window.onclick = (event) => {
+    if (event.target == loginModal) {
+      loginModal.style.display = "none";
+    }
+  };
+
+  loginForm.onsubmit = async (e) => {
+    e.preventDefault();
+    const username = document.getElementById("username").value;
+    const password = document.getElementById("password").value;
+    const success = await loginTeacher(username, password);
+    
+    if (success) {
+      loginModal.style.display = "none";
+      loginForm.reset();
+    } else {
+      alert("Invalid username or password");
+    }
+  };
+
+  logoutBtn.onclick = logoutTeacher;
 
   // Function to fetch activities from API
   async function fetchActivities() {
@@ -17,6 +93,7 @@ document.addEventListener("DOMContentLoaded", () => {
       Object.entries(activities).forEach(([name, details]) => {
         const activityCard = document.createElement("div");
         activityCard.className = "activity-card";
+        const registerBtnClass = isTeacherLoggedIn ? "" : "hidden";
 
         const spotsLeft =
           details.max_participants - details.participants.length;

@@ -5,11 +5,24 @@ A super simple FastAPI application that allows students to view and sign up
 for extracurricular activities at Mergington High School.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 import os
+import json
+import hashlib
 from pathlib import Path
+from typing import Optional
+from jose import JWTError, jwt
+from datetime import datetime, timedelta
+
+# Security configuration
+SECRET_KEY = "your-secret-key-keep-it-secret"  # In production, use proper secret management
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 app = FastAPI(title="Mergington High School API",
               description="API for viewing and signing up for extracurricular activities")
@@ -18,6 +31,55 @@ app = FastAPI(title="Mergington High School API",
 current_dir = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=os.path.join(Path(__file__).parent,
           "static")), name="static")
+
+def get_teacher_data():
+    """Load teacher credentials from JSON file"""
+    with open(os.path.join(current_dir, "teachers.json")) as f:
+        return json.load(f)
+
+def verify_teacher(username: str, password: str) -> Optional[dict]:
+    """Verify teacher credentials"""
+    teachers = get_teacher_data()["teachers"]
+    hashed_password = hashlib.md5(password.encode()).hexdigest()
+    
+    for teacher in teachers:
+        if teacher["username"] == username and teacher["password"] == hashed_password:
+            return teacher
+    return None
+
+def create_access_token(data: dict):
+    """Create JWT token for authenticated teachers"""
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+async def get_current_teacher(token: str = Depends(oauth2_scheme)):
+    """Dependency to get current authenticated teacher"""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username = payload.get("sub")
+        if username is None:
+            raise HTTPException(status_code=401, detail="Invalid authentication token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+    
+    teachers = get_teacher_data()["teachers"]
+    teacher = next((t for t in teachers if t["username"] == username), None)
+    if teacher is None:
+        raise HTTPException(status_code=401, detail="Teacher not found")
+    return teacher
+
+# Routes for authentication
+@app.post("/token")
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    """Login endpoint for teachers"""
+    teacher = verify_teacher(form_data.username, form_data.password)
+    if not teacher:
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
+    
+    access_token = create_access_token({"sub": teacher["username"]})
+    return {"access_token": access_token, "token_type": "bearer"}
 
 # In-memory activity database
 activities = {
